@@ -1,0 +1,141 @@
+"C:\\cfn\\octopustentacle.ps1": {
+                "content": {
+                  "Fn::Join": [
+                    "", [
+                      "Start-Transcript -path \"E:\\Octopus\\TentacleInstallLog.txt\"", "\n",
+                      "$tentacleDownloadPath = \"https://download.octopusdeploy.com/octopus/Octopus.Tentacle.3.3.3-x64.msi\"", "\n",                        
+                      "$octopusServerThumbprint = \"YOUR_OWN_OCTOPUS_THUMBPRINT\"", "\n",
+                      "$tentacleListenPort = 10933\n",
+                      "$tentacleHomeDirectory = \"E:\\Octopus\"", "\n",
+                      "$tentacleAppDirectory = \"E:\\Octopus\\Applications\"", "\n",
+                      "$tentacleConfigFile = \"E:\\Octopus\\Tentacle\\Tentacle.config\"", "\n",
+
+                      "function Download-File\n",
+                      "{\n",
+                      "param ( \n",
+                      "[string] $url,\n",
+                      "[string] $saveAs \n",
+                      ")\n",
+
+                      "Write-Host \"Downloading\" $url to $saveAs\n",
+                      "[System.Net.ServicePointManager]::Expect100Continue = $true;\n",
+                      "[System.Net.ServicePointManager]::SecurityProtocol = `\n",
+                      "[System.Net.SecurityProtocolType]::Ssl3 -bor `\n",
+                      "[System.Net.SecurityProtocolType]::Tls -bor `\n",
+                      "[System.Net.SecurityProtocolType]::Tls11 -bor `\n",
+                      "[System.Net.SecurityProtocolType]::Tls12\n",
+
+
+                      "$downloader = new-object System.Net.WebClient\n",
+                      "$downloader.DownloadFile($url, $saveAs)\n",
+                      "}\n",
+
+                      "function Get-MyPublicIPAddress \n",
+                      "{\n",
+                      "Write-Host \"Getting public IP address\"\n",
+                      "$ip = Invoke-RestMethod http://169.254.169.254/latest/meta-data/local-ipv4/ \n",
+                      "return $ip \n",
+                      "}\n",
+
+
+                      "function Install-Tentacle \n",
+                      "{\n",
+                      "param (\n",
+                      "[Parameter(Mandatory =$True)]\n",
+                      "[string]$apiKey,\n",
+                      "[Parameter(Mandatory =$True)]\n",
+                      "[System.Uri]$octopusServerUrl,\n",
+                      "[Parameter(Mandatory =$True)]\n",
+                      "[string]$environment,\n",
+                      "[Parameter(Mandatory =$True)]\n",
+                      "[string]$role\n",
+                      ")\n",
+
+                      "Write-Output \"Beginning Tentacle installation\"\n",
+
+                      "Write-Output \"Downloading latest Octopus Tentacle MSI...\"\n",
+
+                      "$tentaclePath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath(\"\\Tentacle.msi\")\n",
+                      "if ((test-path $tentaclePath) -ne $true) {\n",
+                      "Download-File $tentacleDownloadPath $tentaclePath", "\n",
+                      "} \n",
+
+                      "Write-Output \"Installing MSI\"\n",
+                      "$msiExitCode = (Start-Process -FilePath \"msiexec.exe\" -ArgumentList \"/i C:\\Tentacle.msi /quiet\" -Wait -Passthru).ExitCode\n",
+
+                      "Write-Output \"Tentacle MSI installer returned exit code $msiExitCode\"\n",
+                      "if ($msiExitCode -ne 0) {\n",
+                      "throw \"Installation aborted\"\n",
+                      "} \n",
+
+                      "Write-Output \"Open port \"Inbound TCP/10933\" on Windows Firewall\"\n",
+                      "& netsh.exe advfirewall firewall add rule name=\"Inbound TCP/10933\" dir=in action=allow protocol=TCP localport=10933", "\n",
+
+                      "if ($lastExitCode -ne 0) {\n",
+                      "throw \"Installation failed when modifying firewall rules\" \n",
+                      "} \n",
+
+                      "$ipAddress = Get-MyPublicIPAddress\n",
+                      "$ipAddress = $ipAddress.Trim()", "\n",
+
+                      "Write-Output \"Public IP address: \" + $ipAddress\n",
+
+
+                      "Write-Output \"Configuring and registering Tentacle\"\n",
+                      "cd \"${env:ProgramW6432}\\Octopus Deploy\\Tentacle\"\n",
+
+
+                      "& .\\tentacle.exe create-instance --instance \"Tentacle\" --config $tentacleConfigFile --console | Write-Host\n",
+                      "if ($lastExitCode -ne 0) {\n",
+                      "throw \"Installation failed on create-instance\"\n",
+                      "} \n",
+
+                      "& .\\tentacle.exe configure --instance \"Tentacle\" --home $tentacleHomeDirectory --console | Write-Host\n",
+                      "if ($lastExitCode -ne 0) {\n",
+                      "throw \"Installation failed on configure\"\n",
+                      "} \n",
+
+                      "& .\\tentacle.exe configure --instance \"Tentacle\" --app $tentacleAppDirectory --console | Write-Host\n",
+                      "if ($lastExitCode -ne 0) {\n",
+                      "throw \"Installation failed on configure\"\n",
+                      "} \n",
+
+
+                      "& .\\tentacle.exe configure --instance \"Tentacle\" --port $tentacleListenPort --console | Write-Host\n",
+                      "if ($lastExitCode -ne 0) {\n",
+                      "throw \"Installation failed on configure\"\n",
+                      "} \n",
+
+
+
+                      "& .\\tentacle.exe new-certificate --instance \"Tentacle\" --console | Write-Host\n",
+                      "if ($lastExitCode -ne 0) {\n",
+                      "throw \"Installation failed on creating new certificate\"\n",
+                      "} \n",
+
+
+
+                      "& .\\tentacle.exe configure --instance \"Tentacle\" --trust $octopusServerThumbprint --console | Write-Host\n",
+                      "if ($lastExitCode -ne 0) {\n",
+                      "throw \"Installation failed on configure\"\n",
+                      "} \n",
+
+
+
+                     "& .\\tentacle.exe register-with --instance \"Tentacle\" --server \"http://OCTOPUS_SERVER_URL\" --apiKey \"YOUR_OWN_OCTOPUS_API_KEY\" --comms-style TentaclePassive --force --role \"ROLE1\" --environment \"YOUR_ENVIRONMENT\" --role \"ROLE2\" --role \"ROLE3\" --name $env:COMPUTERNAME --publicHostName $ipAddress --force --console | Write-Host\n",
+                      "if ($lastExitCode -ne 0) {\n",
+                      "throw \"Installation failed on register-with\"\n",
+                      "} \n",
+
+
+
+                      "& .\\tentacle.exe service --instance \"Tentacle\" --install --start --console | Write-Host\n",
+                      "if ($lastExitCode -ne 0) {\n",
+                      "throw \"Installation failed on service install\"\n",
+                      "} \n",
+
+
+
+                      "Write-Output \"Tentacle commands complete\"\n",
+                      "} \n",
+                      "Install-Tentacle -apiKey \"YOUR_OWN_OCTOPUS_API_KEY\" -octopusServerUrl \"http://OCTOPUS_SERVER_URL\" -environment \"YOUR_ENVIRONMENT\" -role \"ROLE1\"\n"
